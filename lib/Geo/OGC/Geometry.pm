@@ -38,7 +38,7 @@ BEGIN {
     our @ISA = qw(Exporter);
     our %EXPORT_TAGS = ( 'all' => [ qw( &ccw &intersect &distance_point_line ) ] );
     our @EXPORT_OK = ( @{ $EXPORT_TAGS{'all'} } );
-    our $VERSION = '0.01';
+    our $VERSION = '0.02';
 }
 
 ## @cmethod Geo::OGC::Geometry new(%params)

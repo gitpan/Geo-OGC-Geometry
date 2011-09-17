@@ -24,21 +24,35 @@ package Geo::OGC::Geometry;
 
 Geo::OGC::Geometry - Simple feature geometry classes
 
-The <a
-href="http://map.hut.fi/doc/Geoinformatica/html/class_geo_1_1_o_g_c_1_1_geometry.html">
-documentation of Geo::OGC::Geometry</a> is written in doxygen format.
+The classes and methods in the Geo::OGC:: namespace should conform to
+the OGC (opengeospatial.org) implementation specification (currently
+06-103r3) for Geographic Information - Simple feature access.
+
+This module is documented using the doxygen format. Documentation in
+HTML and in other formats can be generated with <a
+href="http://www.stack.nl/~dimitri/doxygen/">doxygen</a> and <a
+href="http://www.bigsister.ch/doxygenfilter/">perl doxygen filter</a>.
+
+The latest version of the documentation is automatically generated at
+http://map.hut.fi/doc/Geoinformatica/html/class_geo_1_1_o_g_c_1_1_geometry.html
 
 =cut
 
 use strict;
 use Carp;
 
+# Force to "C" locale
+use POSIX;
+POSIX::setlocale( &POSIX::LC_NUMERIC, "C" );
+
 BEGIN {
-    use Exporter "import";
-    our @ISA = qw(Exporter);
-    our %EXPORT_TAGS = ( 'all' => [ qw( &ccw &intersect &distance_point_line ) ] );
+    use Exporter 'import';
+    use vars qw /$SNAP_DISTANCE_SQR/;
+    our %EXPORT_TAGS = ( 'all' => [ qw( &ccw &intersect &distance_point_line_sqr 
+					$SNAP_DISTANCE_SQR ) ] );
     our @EXPORT_OK = ( @{ $EXPORT_TAGS{'all'} } );
-    our $VERSION = '0.02';
+    our $VERSION = '0.04';
+    $SNAP_DISTANCE_SQR = 1E-6;
 }
 
 ## @cmethod Geo::OGC::Geometry new(%params)
@@ -86,6 +100,7 @@ sub copy {
 # @brief parse well known text and construct respective geometry
 sub parse_wkt {
     my $self;
+    #print STDERR "parse: $_[0]\n";
     for ($_[0]) {
 	if (/^\s*POINT/i) {
 	    s/^\s*POINT\s*([ZM]*)\s*\(\s*//i;
@@ -99,8 +114,8 @@ sub parse_wkt {
 	    s/\s*\)\s*$//;
 	    my @points = split /\s*,\s*/;
 	    $self = Geo::OGC::MultiPoint->new();
-	    for (@points) {
-		$self->AddGeometry(parse_wkt("POINT$m ($_)"));
+	    for my $p (@points) {
+		$self->AddGeometry(parse_wkt("POINT$m ($p)"));
 	    }
 	} elsif (/^\s*LINESTRING/i) {
 	    s/^\s*LINESTRING\s*([ZM]*)\s*\(\s*//i;
@@ -108,8 +123,8 @@ sub parse_wkt {
 	    s/\s*\)\s*$//;
 	    my @points = split /\s*,\s*/;
 	    $self = Geo::OGC::LineString->new();
-	    for (@points) {
-		$self->AddPoint(parse_wkt("POINT$m ($_)"));
+	    for my $p (@points) {
+		$self->AddPoint(parse_wkt("POINT$m ($p)"));
 	    }
 	} elsif (/^\s*MULTILINESTRING/i) {
 	    s/^\s*MULTILINESTRING\s*([ZM]*)[\s\(]*//i;
@@ -117,8 +132,8 @@ sub parse_wkt {
 	    s/[\s\)]*$//;
 	    my @strings = split /\)\s*,\s*\(/;
 	    $self = Geo::OGC::MultiLineString->new();
-	    for (@strings) {
-		$self->AddGeometry(parse_wkt("LINESTRING$m ($_)"));
+	    for my $s (@strings) {
+		$self->AddGeometry(parse_wkt("LINESTRING$m ($s)"));
 	    }
 	} elsif (/^\s*LINEARRING/i) {
 	    s/^\s*LINEARRING\s*([ZM]*)\s*\(\s*//i;
@@ -126,8 +141,8 @@ sub parse_wkt {
 	    s/\s*\)\s*$//;
 	    my @points = split /\s*,\s*/;
 	    $self = Geo::OGC::LinearRing->new();
-	    for (@points) {
-		$self->AddPoint(parse_wkt("POINT$m ($_)"));
+	    for my $p (@points) {
+		$self->AddPoint(parse_wkt("POINT$m ($p)"));
 	    }
 	} elsif (/^\s*POLYGON/i) {
 	    s/^\s*POLYGON\s*([ZM]*)[\s\(]*//i;
@@ -136,8 +151,8 @@ sub parse_wkt {
 	    my @rings = split /\)\s*,\s*\(/;
 	    $self = Geo::OGC::Polygon->new();
 	    $self->ExteriorRing(parse_wkt("LINEARRING$m (".shift(@rings).")"));
-	    for (@rings) {
-		$self->AddInteriorRing(parse_wkt("LINEARRING$m ($_)"));
+	    for my $r (@rings) {
+		$self->AddInteriorRing(parse_wkt("LINEARRING$m ($r)"));
 	    }
 	} elsif (/^\s*POLYHEDRALSURFACE/i) {
 	    s/^\s*POLYHEDRALSURFACE\s*([ZM]*)[\s\(]*//i;
@@ -145,8 +160,8 @@ sub parse_wkt {
 	    s/[\s\)]*$//;
 	    my @patches = split /\)\s*,\s*\(/;
 	    $self = Geo::OGC::PolyhedralSurface->new();
-	    for (@patches) {
-		$self->AddPatch(parse_wkt("LINEARRING$m ($_)"));
+	    for my $p (@patches) {
+		$self->AddPatch(parse_wkt("POLYGON$m (($p)"));
 	    }
 	} elsif (/^\s*MULTIPOLYGON/i) {
 	    s/^\s*MULTIPOLYGON\s*([ZM]*)[\s\(]*//i;
@@ -154,8 +169,8 @@ sub parse_wkt {
 	    s/[\s\)]*$//;
 	    my @polygons = split /\)\s*\)\s*,\s*\(\s*\(/;
 	    $self = Geo::OGC::MultiPolygon->new();
-	    for (@polygons) {
-		$self->AddGeometry(parse_wkt("POLYGON$m (($_))"));
+	    for my $p (@polygons) {
+		$self->AddGeometry(parse_wkt("POLYGON$m (($p))"));
 	    }
 	} elsif (/^\s*GEOMETRYCOLLECTION/i) {
 	    s/^\s*GEOMETRYCOLLECTION\s*([ZM]*)\s*\(\s*//i;
@@ -194,7 +209,7 @@ sub ccw {
 
 ## @fn $intersect($x11, $y11, $x12, $y12, $x21, $y21, $x22, $y22)
 # @brief Test intersection of two lines from Sedgewick: Algorithms in C
-sub intersect { # also from Sedgewick: Algorithms in C
+sub intersect {
     my($x11, $y11, $x12, $y12, $x21, $y21, $x22, $y22) = @_;
     return ((ccw($x11, $y11, $x12, $y12, $x21, $y21)
 	     *ccw($x11, $y11, $x12, $y12, $x22, $y22)) <= 0)
@@ -202,29 +217,35 @@ sub intersect { # also from Sedgewick: Algorithms in C
 	     *ccw($x21, $y21, $x22, $y22, $x12, $y12)) <= 0);
 }
 
-## @fn $distance_point_line($x, $y, $x1, $y1, $x2, $y2)
-# @brief Compute the distance of a point to a line.
-sub distance_point_line {
-    my($x, $y, $x1, $y1, $x2, $y2) = @_;
-    my $l2 = ($x2-$x1)**2 + ($y2-$y1)**2;
-    my $u = (($x - $x1) * ($x2 - $x1) + ($y - $y1) * ($y2 - $y1)) / $l2;
-    if ($u < 0) { # distance to point 1
-	return sqrt(($x-$x1)**2 + ($y-$y1)**2);
-    } elsif ($u > 1) { # distance to point 2
-	return sqrt(($x-$x2)**2 + ($y-$y2)**2);
-    } else {
-	my $ix = $x1 + $u * ($x2 - $x1);
-	my $iy = $y1 + $u * ($y2 - $y1);
-	return sqrt(($x-$ix)**2 + ($y-$iy)**2);
-    }
+sub intersection_point {
+    my($x11, $y11, $x12, $y12, $x21, $y21, $x22, $y22) = @_;
+    my $dy1 = $y12 - $y11;
+    my $dx1 = $x12 - $x11;
+    my $dy2 = $y22 - $y21;
+    my $dx2 = $x22 - $x21;
+    # (dy1*dx2 - dy2*dx1)*x = dx1*dx2*(y21-y11) - dy2*dx1*x21 + dy1*dx2*x11
+    # (dy1*dx1 - dy2*dx2)*y = dy1*dy2*(x21-x11) - dy1*dx2*y21 + dy2*dx1*y11
+    my $x = ($dx1*$dx2*($y21-$y11) - $dy2*$dx1*$x21 + $dy1*$dx2*$x11)/($dy1*$dx2 - $dy2*$dx1);
+    my $y = ($dy1*$dy2*($x21-$x11) - $dy1*$dx2*$y21 + $dy2*$dx1*$y11)/($dy1*$dx1 - $dy2*$dx2);
+    return ($x, $y);
 }
 
-## @ignore
-sub dump {
-    my($self) = @_;
-    print "$self\n";
-    for (sort keys %$self) {
-	print "$_ => $self->{$_}\n";
+## @fn $distance_point_line_sqr($x, $y, $x1, $y1, $x2, $y2)
+# @brief Compute the distance of a point to a line.
+sub distance_point_line_sqr {
+    my($x, $y, $x1, $y1, $x2, $y2) = @_;
+    my $dx = $x2-$x1;
+    my $dy = $y2-$y1;
+    my $l2 = $dx*$dx + $dy*$dy;
+    my $u = (($x - $x1) * $dx + ($y - $y1) * $dy) / $l2;
+    if ($u < 0) { # distance to point 1
+	return (($x-$x1)*($x-$x1) + ($y-$y1)*($y-$y1));
+    } elsif ($u > 1) { # distance to point 2
+	return (($x-$x2)*($x-$x2) + ($y-$y2)*($y-$y2));
+    } else {
+	my $ix = $x1 + $u * $dx;
+	my $iy = $y1 + $u * $dy;
+	return (($x-$ix)*($x-$ix) + ($y-$iy)*($y-$iy));
     }
 }
 
@@ -253,7 +274,7 @@ sub Precision {
 # @return 2 or 3
 sub Dimension {
     my($self) = @_;
-    return $self->Is3D ? 3 : 2;
+    croak "Dimension method for class ".ref($self)." is not implemented yet";
 }
 
 ## @method $GeometryType()
@@ -445,7 +466,7 @@ sub MakeCollection {
     croak "MakeCollection method for class ".ref($self)." is not implemented";
 }
 
-## @method ApplyTransformation(transf)
+## @method ApplyTransformation($transf)
 # @param transf A point transformation method which will be applied
 # for all points in the geometry as:
 # @code
@@ -455,6 +476,12 @@ sub MakeCollection {
 sub ApplyTransformation {
     my($self, $transf) = @_;
     croak "ApplyTransformation method for class ".ref($self)." is not implemented";
+}
+
+## @method LastPolygon()
+# @brief Returns last (latest added) polygon or undef
+sub LastPolygon {
+    return undef;
 }
 
 #
@@ -479,13 +506,12 @@ sub new {
 package Geo::OGC::Point;
 
 use strict;
-use UNIVERSAL qw(isa);
 use Carp;
 use Geo::OGC::Geometry qw/:all/;
 
 our @ISA = qw( Geo::OGC::Geometry );
 
-## @cmethod new(params)
+## @cmethod new(%params)
 # @brief Construct a new point
 # @param params The following syntaxes are allowed:
 # @code
@@ -516,6 +542,20 @@ sub new {
     } else {
 	%params = @_;
     }
+    # support comma as decimal point, and space in numbers
+    for my $k (keys %params) {
+	if (ref($params{$k})) {
+	    for my $p (@{$params{$k}}) {
+		$p =~ s/,/./g;
+		$p =~ s/ //g;
+		#print STDERR "point: $_\n";
+	    }
+	} else {
+	    $params{$k} =~ s/,/./g;
+	    $params{$k} =~ s/ //g;
+	    #print STDERR "point: $_ => $params{$_}\n";
+	}
+    }
     my $self = Geo::OGC::Geometry::new($package, %params);
     return $self;
 }
@@ -523,51 +563,52 @@ sub new {
 sub init {
     my($self, %params) = @_;
     $self->SUPER::init(%params);
+    # +0 catches non-numeric error, if warnings are on
     if ($params{point}) {
-	$self->{X} = $params{point}[0];
-	$self->{Y} = $params{point}[1];
-	$self->{Z} = $params{point}[2] if @{$params{point}} > 2;
-	$self->{M} = $params{point}[3] if @{$params{point}} > 3;
+	$self->{X} = $params{point}[0]+0;
+	$self->{Y} = $params{point}[1]+0;
+	$self->{Z} = $params{point}[2]+0 if @{$params{point}} > 2;
+	$self->{M} = $params{point}[3]+0 if @{$params{point}} > 3;
     } elsif ($params{pointz}) {
-	$self->{X} = $params{pointm}[0];
-	$self->{Y} = $params{pointm}[1];
-	$self->{Z} = $params{pointm}[2];
+	$self->{X} = $params{pointz}[0]+0;
+	$self->{Y} = $params{pointz}[1]+0;
+	$self->{Z} = $params{pointz}[2]+0;
 	if (@{$params{pointz}} == 4) {
-	    $self->{M} = $params{pointm}[3];
+	    $self->{M} = $params{pointz}[3]+0;
 	}
     } elsif ($params{pointm}) {
-	$self->{X} = $params{pointm}[0];
-	$self->{Y} = $params{pointm}[1];
+	$self->{X} = $params{pointm}[0]+0;
+	$self->{Y} = $params{pointm}[1]+0;
 	if (@{$params{pointm}} == 3) {
-	    $self->{M} = $params{pointm}[2];
+	    $self->{M} = $params{pointm}[2]+0;
 	} elsif (@{$params{pointm}} == 4) {
-	    $self->{Z} = $params{pointm}[2];
-	    $self->{M} = $params{pointm}[3];
+	    $self->{Z} = $params{pointm}[2]+0;
+	    $self->{M} = $params{pointm}[3]+0;
 	}
     } elsif ($params{pointzm}) {
-	$self->{X} = $params{pointm}[0];
-	$self->{Y} = $params{pointm}[1];
-	$self->{Z} = $params{pointm}[2];
-	$self->{M} = $params{pointm}[3];
+	$self->{X} = $params{pointm}[0]+0;
+	$self->{Y} = $params{pointm}[1]+0;
+	$self->{Z} = $params{pointm}[2]+0;
+	$self->{M} = $params{pointm}[3]+0;
     } else {
-	$self->{X} = $params{X} if exists $params{X};
-	$self->{Y} = $params{Y} if exists $params{Y};
-	$self->{Z} = $params{Z} if exists $params{Z};
-	$self->{M} = $params{M} if exists $params{M};
+	$self->{X} = $params{X}+0 if exists $params{X};
+	$self->{Y} = $params{Y}+0 if exists $params{Y};
+	$self->{Z} = $params{Z}+0 if exists $params{Z};
+	$self->{M} = $params{M}+0 if exists $params{M};
     }
 }
 
 sub copy {
     my($self, $clone) = @_;
     $self->SUPER::copy($clone);
-    for (qw/X Y Z M/) {
-	$clone->{$_} = $self->{$_} if exists $self->{$_};
+    for my $a (qw/X Y Z M/) {
+	$clone->{$a} = $self->{$a} if exists $self->{$a};
     }
 }
 
 ## @method point()
 # @brief Return a reference to an anonymous array that contains the point data.
-# @note Note that there is not difference between [x,y,z] and [x,y,m]
+# @note Note that there is no difference between [x,y,z] and [x,y,m]
 sub point {
     my($self) = @_;
     my @point = ($self->{X}, $self->{Y});
@@ -578,6 +619,10 @@ sub point {
 
 sub GeometryType {
     return 'Point';
+}
+
+sub Dimension {
+    return 0;
 }
 
 sub Clone {
@@ -610,7 +655,7 @@ sub IsMeasured {
 
 sub Boundary {
     my($self) = @_;
-    return Geo::OGC::GeometryCollection->new();
+    return $self->Clone;
 }
 
 sub X {
@@ -652,14 +697,14 @@ sub as_text {
     my @coords;
     my $ZM = exists $self->{Z} ? 'Z' : '';
     if (exists $self->{Precision}) {
-	for (qw/X Y Z/) {
-	    last unless exists $self->{$_};
-	    my $s = sprintf('%.'.$self->{Precision}.'e', $self->{$_});
+	for my $a (qw/X Y Z/) {
+	    last unless exists $self->{$a};
+	    my $s = sprintf('%.'.$self->{Precision}.'e', $self->{$a});
 	    push @coords, $s;
 	}
     } else {
-	for (qw/X Y Z/) {
-	    push @coords, $self->{$_} if exists $self->{$_};
+	for my $a (qw/X Y Z/) {
+	    push @coords, $self->{$a} if exists $self->{$a};
 	}
     }
     if (exists $self->{M}) {
@@ -667,60 +712,61 @@ sub as_text {
 	$ZM .= 'M';
     }
     my $text = join(' ', @coords);
+    $text =~ s/,/./g; # setting POSIX numeric locale does not seem to work??
     $text = '('.$text.')' if $force_parens;
     $text = "POINT$ZM ".$text if $include_tag;
     return $text;
 }
 
+# what should we do with z?
 sub Equals {
     my($self, $geom) = @_;
-    return 0 unless isa($geom, 'Geo::OGC::Point');
+    return 0 unless $geom->isa('Geo::OGC::Point');
     if (exists $self->{Precision}) {
-	for (qw/X Y Z/) {
-	    last unless exists $self->{$_} and exists $geom->{$_};
-	    my $s = sprintf('%.'.$self->{Precision}.'e', $self->{$_});
-	    my $g = sprintf('%.'.$self->{Precision}.'e', $geom->{$_});
+	for my $a (qw/X Y Z/) {
+	    last unless exists $self->{$a} and exists $geom->{$a};
+	    my $s = sprintf('%.'.$self->{Precision}.'e', $self->{$a});
+	    my $g = sprintf('%.'.$self->{Precision}.'e', $geom->{$a});
 	    return 0 if $s != $g;
 	}
 	return 1;
     }
-    # should have an accuracy system that determines the number of meaningful numbers
-    return 0 if $self->{X} != $geom->{X};
-    return 0 if $self->{Y} != $geom->{Y};
-    return 0 if ((exists $self->{Z} and exists $geom->{Z}) and $self->{Z} != $geom->{Z});
-    return 1;
+    return (($self->{X}-$geom->{X})**2+($self->{Y}-$geom->{Y})**2) < $SNAP_DISTANCE_SQR;
 }
 
-sub DistanceToLineString {
+sub DistanceToLineStringSqr {
     my($self, $linestring) = @_;
     my($x, $y) = ($self->{X}, $self->{Y});
-    my $distance;
-    my $p1;
-    for my $p2 (@{$linestring->{Points}}) {
-	$p1 = $p2, next unless $p1;
-	my $d = distance_point_line($x, $y, $p1->{X}, $p1->{Y}, $p2->{X}, $p2->{Y});
-	$distance = $d if !(defined $distance) or $d < $distance;
+    my $p1 = $linestring->{Points}[0];
+    return unless $p1;
+    my $p2 = $linestring->{Points}[1];
+    return (($x-$p1->{X})**2+($y-$p1->{Y})**2) unless $p2;
+    my $distance = distance_point_line_sqr($x, $y, $p1->{X}, $p1->{Y}, $p2->{X}, $p2->{Y});
+    for my $i (2..$#{$linestring->{Points}}) {
 	$p1 = $p2;
+	$p2 = $linestring->{Points}[$i];
+	my $d = distance_point_line_sqr($x, $y, $p1->{X}, $p1->{Y}, $p2->{X}, $p2->{Y});
+	$distance = $d if $d < $distance;
     }
     return $distance;
 }
 
 sub Distance {
     my($self, $geom) = @_;
-    if (isa($geom, 'Geo::OGC::Point')) {
+    if ($geom->isa('Geo::OGC::Point')) {
 	return sqrt(($self->{X}-$geom->{X})**2 + ($self->{Y}-$geom->{Y})**2);
-    } elsif (isa($geom, 'Geo::OGC::LineString')) {
-	return $self->DistanceToLineString($geom);
-    } elsif (isa($geom, 'Geo::OGC::Polygon')) {
+    } elsif ($geom->isa('Geo::OGC::LineString')) {
+	return sqrt($self->DistanceToLineStringSqr($geom));
+    } elsif ($geom->isa('Geo::OGC::Polygon')) {
 	if ($geom->{ExteriorRing}->IsPointIn($self)) {
 	    for my $ring (@{$geom->{InteriorRings}}) {
-		return $ring->DistanceOfPoint($self) if $ring->IsPointIn($self);
+		return sqrt($self->DistanceToLineStringSqr($ring)) if $ring->IsPointIn($self);
 	    }
 	    return 0;
 	} else {
-	    return $geom->{ExteriorRing}->DistanceOfPoint($self);
+	    return sqrt($self->DistanceToLineStringSqr($geom->{ExteriorRing}));
 	}
-    } elsif (isa($geom, 'Geo::OGC::GeometryCollection')) {
+    } elsif ($geom->isa('Geo::OGC::GeometryCollection')) {
 	my $dist = $self->Distance($geom->{Geometries}[0]);
 	for my $g (@{$geom->{Geometries}}[1..$#{$geom->{Geometries}}]) {
 	    my $d = $self->Distance($g);
@@ -748,6 +794,36 @@ sub Area {
     return 0;
 }
 
+sub Intersection {
+    my($self, $geom) = @_;
+    return $self->Clone if $self->Within($geom);
+    return undef;
+}
+
+sub Within {
+    my($self, $geom) = @_;
+    if ($geom->isa('Geo::OGC::Point')) {
+	return $self->Equals($geom) ? 1 : 0;
+    } elsif ($geom->isa('Geo::OGC::LineString')) {
+	return $self->DistanceToLineStringSqr($geom) < $SNAP_DISTANCE_SQR ? 1 : 0;
+    } elsif ($geom->isa('Geo::OGC::Polygon')) {
+	if (!($geom->{ExteriorRing}->IsPointStricktlyOut($self))) {
+	    for my $ring (@{$geom->{InteriorRing}}) {
+		return 0 if $ring->IsPointStricktlyIn($self);
+	    }
+	    return 1;
+	}
+	return 0;
+    } elsif ($geom->isa('Geo::OGC::GeometryCollection')) {
+	for my $g (@{$geom->{Geometries}}) {
+	    return 1 if $self->Within($g);
+	}
+	return 0;
+    } else {
+	croak "point within ".ref($geom)." is not implemented yet";
+    }
+}
+
 sub MakeCollection {
     my($self) = @_;
     my $coll = Geo::OGC::MultiPoint->new;
@@ -764,6 +840,27 @@ sub ApplyTransformation {
     }
 }
 
+sub ClosestVertex {
+    my($self, $x, $y) = @_;
+    return (($self->{X}-$x)**2 + ($self->{Y}-$y)**2);
+}
+
+sub VertexAt {
+    my $self = shift;
+    return ($self);
+}
+
+sub ClosestPoint {
+    my($self, $x, $y) = @_;
+    return (($self->{X}-$x)**2 + ($self->{Y}-$y)**2);
+}
+
+sub AddVertex {
+}
+
+sub DeleteVertex {
+}
+
 #
 #    Curve
 #
@@ -774,7 +871,6 @@ package Geo::OGC::Curve;
 # Curve is implemented as a sequence of Points.
 
 use strict;
-use UNIVERSAL qw(isa);
 use Carp;
 use Geo::OGC::Geometry qw/:all/;
 
@@ -791,12 +887,12 @@ sub init {
     $self->SUPER::init(%params);
     $self->{Points} = [];
     if ($params{points}) {
-	for (@{$params{points}}) {
-	    $self->AddPoint(Geo::OGC::Point->new(point=>$_));
+	for my $p (@{$params{points}}) {
+	    $self->AddPoint(Geo::OGC::Point->new(point=>$p));
 	}
     } elsif ($params{pointsm}) {
-	for (@{$params{pointsm}}) {
-	    $self->AddPoint(Geo::OGC::Point->new(pointm=>$_));
+	for my $p (@{$params{pointsm}}) {
+	    $self->AddPoint(Geo::OGC::Point->new(pointm=>$p));
 	}
     }
 }
@@ -804,13 +900,17 @@ sub init {
 sub copy {
     my($self, $clone) = @_;
     $self->SUPER::copy($clone);
-    for (@{$self->{Points}}) {
-	$clone->AddPoint($_->Clone);
+    for my $p (@{$self->{Points}}) {
+	$clone->AddPoint($p->Clone);
     }
 }
 
 sub GeometryType {
     return 'Curve';
+}
+
+sub Dimension {
+    return 1;
 }
 
 sub as_text {
@@ -823,7 +923,7 @@ sub as_text {
     return $text;
 }
 
-## @method AddPoint(point, i)
+## @method AddPoint($point, $i)
 # @param point A Point object
 # @param i [optional] The location in the sequence (1..N+1) where to add the Point. 
 # Adds to the end (N+1) by default.
@@ -831,7 +931,7 @@ sub as_text {
 sub AddPoint {
     my($self, $point, $i) = @_;
     croak 'usage: Curve->AddPoint($point) '
-	unless $point and isa($point, 'Geo::OGC::Point');
+	unless $point and $point->isa('Geo::OGC::Point');
     my $points = $self->{Points};
     if (defined $i) {
 	my $temp = $points->[$i-1];
@@ -841,7 +941,7 @@ sub AddPoint {
     }
 }
 
-## @method DeletePoint(i)
+## @method DeletePoint($i)
 # @param i The location in the sequence (1..N) from where to delete the Point. 
 # @note not in the specification
 sub DeletePoint {
@@ -871,7 +971,7 @@ sub NumPoints {
     @{$self->{Points}};
 }
 
-## @method PointN(N, point)
+## @method PointN($N, $point)
 # @param N A location in the sequence
 # @note The first point has the index 1 as OGC SF SQL conformance test uses 1-based indexing. 
 # @param point [optional] A Point object, if defined sets the point to index N
@@ -884,16 +984,16 @@ sub PointN {
 
 sub Is3D {
     my($self) = @_;
-    for (@{$self->{Points}}) {
-	return 1 if $_->Is3D;
+    for my $p (@{$self->{Points}}) {
+	return 1 if $p->Is3D;
     }
     return 0;
 }
 
 sub IsMeasured {
     my($self) = @_;
-    for (@{$self->{Points}}) {
-	return 1 if $_->IsMeasured;
+    for my $p (@{$self->{Points}}) {
+	return 1 if $p->IsMeasured;
     }
     return 0;
 }
@@ -922,9 +1022,10 @@ sub IsRing {
     return $ret;
 }
 
+# should use Precision if one exists
 sub Equals {
     my($self, $geom) = @_;
-    return 0 unless isa($geom, 'Geo::OGC::Curve');
+    return 0 unless $geom->isa('Geo::OGC::Curve');
     return 0 unless $#{$self->{Points}} == $#{$geom->{Points}};
     for my $i (0..$#{$self->{Points}}) {
 	return 0 unless $self->{Points}[$i]->Equals($geom->{Points}[$i]);
@@ -958,6 +1059,60 @@ sub Reverse {
     @{$self->{Points}} = reverse @{$self->{Points}};
 }
 
+sub ClosestVertex {
+    my($self, $x, $y) = @_;
+    return unless @{$self->{Points}};
+    my($dmin) = $self->{Points}[0]->ClosestVertex($x, $y);
+    my $i = 0;
+    for my $j (1..$#{$self->{Points}}) {
+	my($d) = $self->{Points}[$j]->ClosestVertex($x, $y);
+	($i, $dmin) = ($j, $d) if $d < $dmin;
+    }
+    return ($i, $dmin);
+}
+
+sub VertexAt {
+    my($self, $i) = @_;
+    return ($self->{Points}[0], $self->{Points}[$#{$self->{Points}}])
+	if (($i == 0 or $i == $#{$self->{Points}}) and $self->isa('Geo::OGC::LinearRing'));
+    return ($self->{Points}[$i]);
+}
+
+sub _closest_point {
+    my($x0, $y0, $x1, $y1, $x, $y) = @_;
+    my $ab2 = ($x1-$x0)*($x1-$x0) + ($y1-$y0)*($y1-$y0);
+    my $ap_ab = ($x-$x0)*($x1-$x0) + ($y-$y0)*($y1-$y0);
+    my $t = $ap_ab/$ab2;
+    if ($t < 0) {$t = 0} elsif ($t > 1) {$t = 1}
+    my $xp = $x0+$t*($x1-$x0);
+    my $yp = $y0+$t*($y1-$y0);
+    return ($xp, $yp, ($x-$xp)*($x-$xp)+($y-$yp)*($y-$yp));
+}
+
+sub ClosestPoint {
+    my($self, $x, $y) = @_;
+    return unless @{$self->{Points}};
+    my($i, $pmin, $dmin);
+    for my $j (1..$#{$self->{Points}}) {
+	my($xp, $yp, $d) = 
+	    _closest_point($self->{Points}[$j-1]{X}, $self->{Points}[$j-1]{Y}, 
+			   $self->{Points}[$j]{X}, $self->{Points}[$j]{Y}, $x, $y);
+	($i, $pmin, $dmin) = ($j, Geo::OGC::Point->new($xp, $yp), $d) 
+	    if (!defined($dmin) or $d  < $dmin);
+    }
+    return ($i, $pmin, $dmin)
+}
+
+sub AddVertex {
+    my($self, $i, $p) = @_;
+    splice @{$self->{Points}}, $i, 0, $p;
+}
+
+sub DeleteVertex {
+    my($self, $i) = @_;
+    splice @{$self->{Points}}, $i, 1;
+}
+
 #
 #    LineString
 #
@@ -969,6 +1124,56 @@ use Carp;
 use Geo::OGC::Geometry qw/:all/;
 
 our @ISA = qw( Geo::OGC::Curve );
+
+# de Berg et al p. 25
+sub FindIntersections {
+    # @_ contains a list of linestrings that make up the S
+    my @linestrings = @_;
+    #my $precision = 
+
+    # event queue
+    my @Q = (); # [ymax,index1,index2], ..., index1 is index to @_ index2 is index to Points
+    for my $index1 (0 .. $#linestrings) {
+	my $s = $linestrings[$index1]->{Points};
+	for my $index2 (0 .. $#$s-1) {
+	    my($y1, $y2) = ( $s->[$index2]{Y}, $s->[$index2+1]{Y} );
+	    if ($y1 > $y2) {
+		push @Q, [$y1, $index1, $index2];
+		push @Q, [$y2];
+	    } else {
+		push @Q, [$y2, $index1, $index2];
+		push @Q, [$y1];
+	    }
+	}
+    }
+    
+    # process event points in descending ymax order
+    @Q = sort {$b->[0] <=> $a->[0]} @Q;
+    
+    my $T = Tree::Binary::Search->new(); # the status structure
+    $T->setComparisonFunction
+	(sub {
+	    my($a, $b) = @_; # two keys
+	    
+	});
+    
+    my $i = 0;
+    while ($i < @Q) {
+	my $j = $i+1;
+	while ($j < @Q and sqrt(($Q[$i][0]-$Q[$j][0])**2) < $SNAP_DISTANCE_SQR) {
+	    $j++;
+	}
+	# $i .. $j-1 are the event points in @Q
+	for my $k ($i .. $j-1) {
+	    if (@{$Q[$k]} == 3) {
+		my $i1 = $Q[$k][1];
+		my $i2 = $Q[$k][2];
+		my $s = $linestrings[$i1]->{Points};
+		$T->insert( "$i1,$i2" => [$s->[$i2]{X}, $s->[$i2]{Y}, $s->[$i2+1]{X}, $s->[$i2+1]{Y}] );
+	    }
+	}
+    }
+}
 
 sub new {
     my($package, %params) = @_;
@@ -1022,7 +1227,7 @@ sub Envelope {
 }
 
 ## @method Length()
-# @brief The length of this Curve in its associated spatial reference.
+# @brief The length of this LineString in its associated spatial reference.
 # @note Currently computed as a simple euclidean distance.
 sub Length {
     my($self) = @_;
@@ -1038,23 +1243,23 @@ sub Length {
 
 sub Distance {
     my($self, $geom) = @_;
-    if (isa($geom, 'Geo::OGC::Point')) {
-	return $geom->DistanceToLineString($self);
-    } elsif (isa($geom, 'Geo::OGC::LineString')) {
+    if ($geom->isa('Geo::OGC::Point')) {
+	return $geom->DistanceToLineStringSqr($self);
+    } elsif ($geom->isa('Geo::OGC::LineString')) {
 	my $dist;
 	for my $p (@{$self->{Points}}) {
-	    my $d = $p->DistanceToLineString($geom);
+	    my $d = $p->DistanceToLineStringSqr($geom);
 	    $dist = $d if !(defined $dist) or $d < $dist;
 	}
 	return $dist;
-    } elsif (isa($geom, 'Geo::OGC::Polygon')) {
+    } elsif ($geom->isa('Geo::OGC::Polygon')) {
 	my $dist;
 	for my $p (@{$self->{Points}}) {
 	    my $d = $p->Distance($geom);
 	    $dist = $d if !(defined $dist) or $d < $dist;
 	}
 	return $dist;
-    } elsif (isa($geom, 'Geo::OGC::GeometryCollection')) {
+    } elsif ($geom->isa('Geo::OGC::GeometryCollection')) {
 	my $dist = $self->Distance($geom->{Geometries}[0]);
 	for my $g (@{$geom->{Geometries}}[1..$#{$geom->{Geometries}}]) {
 	    my $d = $self->Distance($g);
@@ -1066,11 +1271,276 @@ sub Distance {
     }
 }
 
+sub LinesWhereWithin {
+    my($self, $point) = @_;
+    my($x, $y) = ($point->{X}, $point->{Y});
+    my @ret;
+    my $p1 = $self->{Points}[0];
+    return @ret unless $p1;
+    my $p2 = $self->{Points}[1];
+    return @ret unless $p1;
+    push @ret, 1 if 
+	distance_point_line_sqr($x, $y, $p1->{X}, $p1->{Y}, $p2->{X}, $p2->{Y}) < $SNAP_DISTANCE_SQR;
+    for my $i (2..$#{$self->{Points}}) {
+	$p1 = $p2;
+	$p2 = $self->{Points}[$i];
+	push @ret, $i if
+	    distance_point_line_sqr($x, $y, $p1->{X}, $p1->{Y}, $p2->{X}, $p2->{Y}) < $SNAP_DISTANCE_SQR;
+    }
+    return @ret;
+}
+
+sub Within {
+    my($self, $geom) = @_;
+    if ($geom->isa('Geo::OGC::Point')) {
+	for my $p (@{$self->{Points}}) {
+	    return 0 unless $p->Equals($geom);
+	}
+	return 1;
+    } elsif ($geom->isa('Geo::OGC::LineString')) {
+	my @w1 = ();
+	for my $p (@{$self->{Points}}) {
+	    my @w2 = $geom->LinesWhereWithin($p);
+	    return 0 unless @w2;
+	    next unless @w1;
+	    my $overlap = 0;
+	    for my $w1 (@w1) {
+		for my $w2 (@w2) {
+		    $overlap = 1 if $w1 == $w2;
+		}
+	    }
+	    return 0 unless $overlap;
+	    @w1 = @w2;
+	}
+	return 1;
+    } elsif ($geom->isa('Geo::OGC::Polygon')) {
+	for my $p (@{$self->{Points}}) {
+	    return 0 if $geom->{ExteriorRing}->IsPointStricktlyOut($p);
+	    for my $ring (@{$geom->{InteriorRings}}) {
+		return 0 if $ring->IsPointStricktlyIn($p);
+	    }
+	}
+	my $i = $self->Intersection($geom->{ExteriorRing});
+	for my $g (@{$i->{Geometries}}) {
+	    next unless $g->isa('Geo::OGC::Line');
+	    # does the line go out of the polygon?
+	    # yes, if its start and end points are on different lines
+	    my @s = $geom->{ExteriorRing}->LinesWhereWithin($g->StartPoint);
+	    my @e = $geom->{ExteriorRing}->LinesWhereWithin($g->EndPoint);
+	    my $overlap = 0;
+	    for my $s (@s) {
+		for my $e (@e) {
+		    $overlap = 1 if $s == $e;
+		}
+	    }
+	    return 0 unless $overlap;
+	}
+	for my $ring (@{$geom->{InteriorRings}}) {
+	    my $i = $self->Intersection($ring);
+	    for my $g (@{$i->{Geometries}}) {
+		next unless $g->isa('Geo::OGC::Line');
+		# does the line go into the interior ring?
+		# yes, if its start and end points are on different lines
+		my @s = $ring->LinesWhereWithin($g->StartPoint);
+		my @e = $ring->LinesWhereWithin($g->EndPoint);
+		my $overlap = 0;
+		for my $s (@s) {
+		    for my $e (@e) {
+			$overlap = 1 if $s == $e;
+		    }
+		}
+		return 0 unless $overlap;
+	    }
+	}
+	return 1;
+    } else {
+	croak "linestring within ".ref($geom)." is not yet implemented";
+    }
+}
+
+# assuming simple lines
+# z and m coords!
+sub Intersection {
+    my($self, $geom) = @_;
+    if ($geom->isa('Geo::OGC::Point')) {
+	return $geom->Clone if $geom->DistanceToLineStringSqr($self) < $SNAP_DISTANCE_SQR;
+    } elsif ($geom->isa('Geo::OGC::LineString')) {
+	#my $i = Geo::OGC::GeometryCollection->new;
+	my %i;
+	my $index = 1;
+	my $p1;
+	for my $p2 (@{$self->{Points}}) {
+	    $p1 = $p2, next unless $p1;
+	    my $q1;
+	    for my $q2 (@{$geom->{Points}}) {
+		$q1 = $q2, next unless $q1;
+		my @p = ($p1->{X}, $p1->{Y}, $p2->{X}, $p2->{Y});
+		my @q = ($q1->{X}, $q1->{Y}, $q2->{X}, $q2->{Y});
+		#print STDERR "lines: @p; @q\n";
+		if (intersect( @p, @q )) {
+		    my $p1q = distance_point_line_sqr(@p[0..1], @q);
+		    my $p2q = distance_point_line_sqr(@p[2..3], @q);
+		    my $q1p = distance_point_line_sqr(@q[0..1], @p);
+		    my $q2p = distance_point_line_sqr(@q[2..3], @p);
+		    #print STDERR "p1=q $p1q p2=q $p2q q1=p $q1p q2=p $q2p\n";
+		    if ($p1q < $SNAP_DISTANCE_SQR) {
+			if ($q1p < $SNAP_DISTANCE_SQR) {
+			    if ($p1->Equals($q1)) {
+				$i{$index++} = $p1->Clone;
+			    } else {
+				$i{$index++} = Geo::OGC::Line->new( points=>[[@p[0..1]],[@q[0..1]]] );
+			    }
+			} 
+			if ($q2p < $SNAP_DISTANCE_SQR) {
+			    if ($p1->Equals($q2)) {
+				$i{$index++} = $p1->Clone;
+			    } else {
+				$i{$index++} = Geo::OGC::Line->new( points=>[[@p[0..1]],[@q[2..3]]] );
+			    }
+			} 
+			if ($p2q < $SNAP_DISTANCE_SQR) {
+			    $i{$index++} = Geo::OGC::Line->new( points=>[[@p[0..1]],[@p[2..3]]] );
+			} else {
+			    $i{$index++} = Geo::OGC::Point->new( @p[0..1] );
+			}
+		    } elsif ($p2q < $SNAP_DISTANCE_SQR) {
+			if ($q1p < $SNAP_DISTANCE_SQR) {
+			    if ($p2->Equals($q1)) {
+				$i{$index++} = $p2->Clone;
+			    } else {
+				$i{$index++} = Geo::OGC::Line->new( points=>[[@p[2..3]],[@q[0..1]]] );
+			    }
+			} 
+			if ($q2p < $SNAP_DISTANCE_SQR) {
+			    if ($p2->Equals($q2)) {
+				$i{$index++} = $p2->Clone;
+			    } else {
+				$i{$index++} = Geo::OGC::Line->new( points=>[[@p[2..3]],[@q[2..3]]] );
+			    }
+			}
+			$i{$index++} = Geo::OGC::Point->new( @p[2..3] );
+		    } elsif ($q1p < $SNAP_DISTANCE_SQR) {
+			if ($q2p < $SNAP_DISTANCE_SQR) {
+			    $i{$index++} = Geo::OGC::Line->new( points=>[[@q[0..1]],[@q[2..3]]] );
+			} else {
+			    $i{$index++} = Geo::OGC::Point->new( @q[0..1] );
+			}
+		    } elsif ($q2p < $SNAP_DISTANCE_SQR) {
+			$i{$index++} = Geo::OGC::Point->new( @q[2..3] );
+		    } else {
+			$i{$index++} = Geo::OGC::Point->new( Geo::OGC::Geometry::intersection_point(@p, @q) );
+		    }
+		}
+		$q1 = $q2;
+	    }
+	    $p1 = $p2;
+	}
+	#$i->Simplify;
+	
+	# delete unnecessary points and lines
+	# comparisons are done unnecessarily twice??
+	for my $g1 (keys %i) {
+	    for my $g2 (keys %i) {
+		next if $g1 == $g2;
+		if ($i{$g1}->Within($i{$g2})) {
+		    #print STDERR "delete ",$i{$g1}->AsText," because it is in ",$i{$g2}->AsText,"\n";
+		    delete $i{$g1};
+		    last;
+		}
+	    }
+	}
+
+	my $i = Geo::OGC::GeometryCollection->new;
+	for my $g1 (keys %i) {
+	    $i->AddGeometry($i{$g1});
+	}
+	return $i;
+    } else {
+	croak "intersection between a ".ref($geom)." and a line string is not yet implemented";
+    }
+}
+
 sub MakeCollection {
     my($self) = @_;
     my $coll = Geo::OGC::MultiLineString->new;
     $coll->AddGeometry($self);
     return $coll;
+}
+
+# from http://everything2.com/index.pl?node_id=859282
+sub pt_to_seg_dist {
+    # distance of p to segment p1-p2, v12 is the vector p1p2
+    my ($p1, $v12, $p) = @_;
+
+    my $m12 = $v12->[0] * $v12->[0] + $v12->[1] * $v12->[1];
+    my $v1p = [];
+    $v1p->[0] = $p->{X} - $p1->{X};
+    $v1p->[1] = $p->{Y} - $p1->{Y};
+    my $dot = $v1p->[0] * $v12->[0] + $v1p->[1] * $v12->[1];
+    if ($dot <= 0.0) 
+    {
+	return sqrt ($v1p->[0] * $v1p->[0] + $v1p->[1] * $v1p->[1]);
+    } 
+    else 
+    {
+	if ($dot >= $m12)
+	{
+	    $v1p->[0] = $v1p->[0] + $v12->[0];
+	    $v1p->[1] = $v1p->[1] + $v12->[1];
+	    return sqrt ($v1p->[0] * $v1p->[0] + $v1p->[1] * $v1p->[1]);
+	}
+	else
+	{
+	    my $slash = $v1p->[0] * $v12->[1] - $v1p->[1] * $v12->[0];
+	    return abs ($slash / sqrt ($m12));
+	}
+    }
+}
+
+sub simplify_part {
+    my($self, $first, $last, $simple, $tolerance) = @_;
+    if ($last > $first + 1)
+    {
+	my $p1 = $self->{Points}[$first];
+	my $vfl = [$self->{Points}[$last]{X} - $self->{Points}[$first]{X},
+		   $self->{Points}[$last]{Y} - $self->{Points}[$first]{Y}];
+	# find the intermediate point
+	# furthest from the segment
+	# connecting first and last
+	my $b = $first+1;
+	my $db = pt_to_seg_dist ($p1, $vfl, $self->{Points}[$b]);
+	my $i = $b + 1;
+	while ($i < $last) 
+	{
+	    my $di = pt_to_seg_dist ($p1, $vfl, $self->{Points}[$i]);
+	    if ($di > $db)
+	    {
+		$b = $i;
+		$db = $di;
+	    }
+	    $i++;
+	}
+	# if the furthest distance beats the tolerance,
+	# recursively simplify the rest of the array.
+	if ($db >= $tolerance)
+	{
+	    simplify_part ($self, $first, $b, $simple, $tolerance);
+	    $simple->AddPoint($self->{Points}[$b]);
+	    simplify_part ($self, $b, $last, $simple, $tolerance);
+	}
+    }
+}
+
+## @method simplify($tolerance)
+# @brief Simplifies the linestring using Douglas-Peucker
+# @return The simpliefied linestring
+sub simplify {
+    my($self, $tolerance) = @_;
+    my $simple = Geo::OGC::LineString->new;
+    $simple->AddPoint($self->StartPoint);
+    simplify_part ($self, 0, $self->NumPoints-1, $simple, $tolerance);
+    $simple->AddPoint($self->EndPoint);
+    return $simple;
 }
 
 #
@@ -1121,20 +1591,37 @@ sub GeometryType {
 # @note uses the pnpoly algorithm from
 # http://www.ecse.rpi.edu/Homepages/wrf/Research/Short_Notes/pnpoly.html
 # @note Assumes a simple closed ring
+# @note may or may not return true if the point is on the border
 sub IsPointIn {
     my($self, $point) = @_;
     my($x, $y) = ($point->{X}, $point->{Y});
     my $c = 0;
     my $prev;
-    for (@{$self->{Points}}) {
-	$prev = $_, next unless $prev;
-        $c = !$c if (((( $_->{Y} <= $y ) && ( $y < $prev->{Y} )) ||
-		      (( $prev->{Y} <= $y ) && ( $y < $_->{Y} ))) &&
-		     ( $x < ( $prev->{X} - $_->{X} ) * 
-		       ( $y - $_->{Y} ) / ( $prev->{Y} - $_->{Y} ) + $_->{X} ));
-	$prev = $_;
+    for my $p (@{$self->{Points}}) {
+	$prev = $p, next unless $prev;
+	$c = !$c if (((( $p->{Y} <= $y ) && ( $y < $prev->{Y} )) ||
+		      (( $prev->{Y} <= $y ) && ( $y < $p->{Y} ))) &&
+		     ( $x < ( $prev->{X} - $p->{X} ) * 
+		       ( $y - $p->{Y} ) / ( $prev->{Y} - $p->{Y} ) + $p->{X} ));
+	$prev = $p;
     }
     return $c;
+}
+
+# @note not on the border
+sub IsPointStricktlyIn {
+    my($self, $point) = @_;
+    return 1 if ( $self->IsPointIn($point) and 
+		  !($point->DistanceToLineStringSqr($self) < $SNAP_DISTANCE_SQR) );
+    return 0;
+}
+
+# @note not on the border
+sub IsPointStricktlyOut {
+    my($self, $point) = @_;
+    return 1 unless ( $self->IsPointIn($point) or 
+		      $point->DistanceToLineStringSqr($self) < $SNAP_DISTANCE_SQR );
+    return 0;
 }
 
 ## @method Area()
@@ -1196,6 +1683,13 @@ sub IsCCW {
 	       $self->{Points}[$n]{X}, $self->{Points}[$n]{Y}) == 1;
 }
 
+## @method Rotate()
+# @brief Makes clockwise from counterclockwise and vice versa.
+sub Rotate {
+    my($self) = @_;
+    @{$self->{Points}} = reverse @{$self->{Points}};
+}
+
 #
 #    Surface
 #
@@ -1215,6 +1709,10 @@ sub new {
 
 sub GeometryType {
     return 'Surface';
+}
+
+sub Dimension {
+    return 2;
 }
 
 sub Area {
@@ -1246,7 +1744,6 @@ sub MakeCollection {
 package Geo::OGC::Polygon;
 
 use strict;
-use UNIVERSAL qw(isa);
 use Carp;
 
 our @ISA = qw( Geo::OGC::Surface );
@@ -1268,8 +1765,8 @@ sub copy {
     my($self, $clone) = @_;
     $self->SUPER::copy($clone);
     $clone->ExteriorRing($self->{ExteriorRing}->Clone) if $self->{ExteriorRing};
-    for (@{$self->{InteriorRings}}) {
-	$clone->AddInteriorRing($_->Clone);
+    for my $r (@{$self->{InteriorRings}}) {
+	$clone->AddInteriorRing($r->Clone);
     }
 }
 
@@ -1277,11 +1774,71 @@ sub GeometryType {
     return 'Polygon';
 }
 
+## @method Assert()
+# @brief Test the rules that define valid polygons
+# @note Not in the specification.
+sub Assert {
+    my($self) = @_;
+
+    # a) Polygons are topologically closed;
+    croak "not at least triangle" unless @{$self->{ExteriorRing}->{Points}} > 3;
+    croak "exterior not closed" unless $self->{ExteriorRing}->IsClosed;
+
+    # b) The boundary of a Polygon consists of a set of LinearRings
+    # that make up its exterior and interior boundaries;
+    for my $r (@{$self->{InteriorRings}}) {
+	croak "an interior is not closed" unless $r->IsClosed;
+    }
+
+    # c) No two Rings in the boundary cross and the Rings in the
+    # boundary of a Polygon may intersect at a Point but only as a
+    # tangent
+    for my $ring (@{$self->{InteriorRings}}) {
+	for my $p (@{$ring->{Points}}) {
+	    croak "point in interior not within exterior" unless $self->{ExteriorRing}->IsPointIn($p);
+	    for my $r2 (@{$self->{InteriorRings}}) {
+		next if $ring == $r2;
+		croak "point in interior is within another interior" if $r2->IsPointIn($p);
+	    }
+	}
+    }
+
+    # d) A Polygon may not have cut lines, spikes or punctures
+    croak "exterior is not simple" unless $self->{ExteriorRing}->IsSimple;
+    for my $r (@{$self->{InteriorRings}}) {
+	croak "an interior is not simple" unless $r->IsSimple;
+    }
+
+    # e) The interior of every Polygon is a connected point set
+
+    # f) The exterior of a Polygon with 1 or more holes is not
+    # connected. Each hole defines a connected component of the
+    # exterior.
+
+    for my $i (0..$#{$self->{InteriorRings}}) {
+	my $r1 = $self->{InteriorRings}[$i];
+	my $i = $r1->Intersection($self->{ExteriorRing});
+	croak "an interior intersects too much with the exterior"
+	    if @{$i->{Geometries}} and (@{$i->{Geometries}} > 1 or 
+					!$i->{Geometries}[0]->isa('Geo::OGC::Point'));
+	for my $j ($i+1..$#{$self->{InteriorRings}}) {
+	    my $r2 = $self->{InteriorRings}[$j];
+	    $i = $r1->Intersection($r2);
+	    croak "an interior intersects too much with another interior"
+		if @{$i->{Geometries}} and (@{$i->{Geometries}} > 1 or 
+					    !$i->{Geometries}[0]->isa('Geo::OGC::Point'));
+	}
+    }
+
+    return 1;
+
+}
+
 sub Is3D {
     my($self) = @_;
     return 1 if $self->{ExteriorRing}->Is3D;
-    for (@{$self->{InteriorRings}}) {
-	return 1 if $_->Is3D;
+    for my $r (@{$self->{InteriorRings}}) {
+	return 1 if $r->Is3D;
     }
     return 0;
 }
@@ -1289,8 +1846,8 @@ sub Is3D {
 sub IsMeasured {
     my($self) = @_;
     return 1 if $self->{ExteriorRing}->IsMeasured;
-    for (@{$self->{InteriorRings}}) {
-	return 1 if $_->IsMeasured;
+    for my $r (@{$self->{InteriorRings}}) {
+	return 1 if $r->IsMeasured;
     }
     return 0;
 }
@@ -1298,7 +1855,7 @@ sub IsMeasured {
 sub AddInteriorRing {
     my($self, $ring, $i) = @_;
     croak 'usage: Polygon->AddInteriorRing($ring[, $i])' 
-	unless $ring and isa($ring, 'Geo::OGC::LinearRing');
+	unless $ring and $ring->isa('Geo::OGC::LinearRing');
     my $rings = $self->{InteriorRings};
     $i = @$rings unless defined $i;
     if (@$rings) {
@@ -1313,7 +1870,7 @@ sub ExteriorRing {
     my($self, $ring) = @_;
     if (defined $ring) {
 	croak 'usage: Polygon->ExteriorRing($ring)' 
-	    unless isa($ring, 'Geo::OGC::LinearRing');
+	    unless $ring->isa('Geo::OGC::LinearRing');
 	$self->{ExteriorRing} = $ring;
     } else {
 	return $self->{ExteriorRing};
@@ -1344,7 +1901,7 @@ sub InteriorRingN {
 # @note Assumes the order of the interior rings is the same.
 sub Equals {
     my($self, $geom) = @_;
-    return 0 unless isa($geom, 'Geo::OGC::Polygon');
+    return 0 unless $geom->isa('Geo::OGC::Polygon');
     return 0 unless @{$self->{InteriorRings}} == @{$geom->{InteriorRings}};
     return 0 unless $self->{ExteriorRing}->Equals($geom->{ExteriorRing});
     for my $i (0..$#{$self->{InteriorRings}}) {
@@ -1373,6 +1930,101 @@ sub IsPointIn {
     return $c;
 }
 
+sub Distance {
+    my($self, $geom) = @_;
+    if ($geom->isa('Geo::OGC::Point')) {
+	return $geom->Distance($self);
+    } elsif ($geom->isa('Geo::OGC::LineString')) {
+	return $geom->Distance($self);
+    } elsif ($geom->isa('Geo::OGC::Polygon')) {
+	my $dist;
+	for my $p (@{$self->{ExteriorRing}->{Points}}) {
+	    if ($geom->{ExteriorRing}->IsPointIn($p)) {
+		my $c = 1;
+		for my $ring (@{$self->{InteriorRings}}) {
+		    if ($ring->IsPointIn($p)) {
+			my $d = $p->DistanceToLineStringSqr($ring);
+			$dist = $d if !(defined $dist) or $d < $dist;
+			$c = 0;
+		    }
+		}
+		return 0 if $c;
+	    } else {
+		my $d = $p->DistanceToLineStringSqr($geom->{ExteriorRing});
+		$dist = $d if !(defined $dist) or $d < $dist;
+	    }
+	}
+	return $dist;
+    } elsif ($geom->isa('Geo::OGC::GeometryCollection')) {
+	my $dist = $self->Distance($geom->{Geometries}[0]);
+	for my $g (@{$geom->{Geometries}}[1..$#{$geom->{Geometries}}]) {
+	    my $d = $self->Distance($g);
+	    $dist = $d if $d < $dist;
+	}
+	return $dist;
+    } else {
+	croak "can't compute distance between a ".ref($geom)." and a polygon";
+    }
+}
+
+sub Within {
+    my($self, $geom) = @_;
+    if ($geom->isa('Geo::OGC::Point')) {
+	for my $p (@{$self->{ExteriorRing}->{Points}}) {
+	    return 0 unless $p->Equals($geom);
+	}
+	return 1;
+    } elsif ($geom->isa('Geo::OGC::LineString')) {
+	for my $p (@{$self->{ExteriorRing}->{Points}}) {
+	    return 0 unless $p->Within($geom);
+	}
+	return 1;
+    } elsif ($geom->isa('Geo::OGC::Polygon')) {
+	croak "polygon within ".ref($geom)." is not yet implemented";
+	# the exterior and interior rings must be completely within
+	# and the other's interiors must not be within ...
+	for my $p (@{$self->{ExteriorRing}->{Points}}) {
+	    return 0 unless $p->Within($geom);
+	}
+	return 1;
+    } else {
+	croak "polygon within ".ref($geom)." is not yet implemented";
+    }
+}
+
+sub Intersection {
+    my($self, $geom) = @_;
+    if ($geom->isa('Geo::OGC::Point')) {
+	return $geom->Intersection($self);
+    } elsif ($geom->isa('Geo::OGC::LineString')) {
+	return $geom->Intersection($self);
+    } elsif ($geom->isa('Geo::OGC::Polygon')) {
+	croak "polygon within ".ref($geom)." is not yet implemented";
+
+	# 1st intersection between outer rings $A (this) and $B (other)
+	my $A = $self->{ExteriorRing};
+	my $B = $geom->{ExteriorRing};
+	my $p1 = $A->{Points}[0];
+	my $c = $B->IsPointStricktlyIn($p1);
+
+	my $i = 0;
+	my $j;
+	while (1) {
+	    my $p = $A->{Points}[$i];
+	    $j = $i, last if $B->IsPointStricktlyOut($p);
+	    $i++;
+	    last if $i == @{$A->{Points}};
+	}
+	if (defined $j) { # there is at least one point
+	}
+	# the list of 
+	my @A; # lines on A
+	
+    } else {
+	croak "polygon within ".ref($geom)." is not yet implemented";
+    }
+}
+
 sub as_text {
     my($self, $force_parens, $include_tag) = @_;
     my $text .= $self->{ExteriorRing}->as_text if $self->{ExteriorRing};
@@ -1393,6 +2045,59 @@ sub MakeCollection {
     return $coll;
 }
 
+sub ClosestVertex {
+    my($self, $x, $y) = @_;
+    return unless $self->{ExteriorRing};
+    my($imin, $dmin) = $self->{ExteriorRing}->ClosestVertex($x, $y);
+    my $iring = -1;
+    my $r = 0;
+    for my $ring (@{$self->{InteriorRings}}) {
+	my($i, $d) = $ring->ClosestVertex($x, $y);
+	($iring, $imin, $dmin) = ($r, $i, $d) if $d < $dmin;
+	$r++;
+    }
+    return ($iring, $imin, $dmin);
+}
+
+sub VertexAt {
+    my($self, $iring, $ivertex) = @_;
+    return $self->{ExteriorRing}->VertexAt($ivertex) if $iring < 0;
+    return $self->{InteriorRings}[$iring]->VertexAt($ivertex);
+}
+
+sub ClosestPoint {
+    my($self, $x, $y) = @_;
+    return unless $self->{ExteriorRing};
+    my($imin, $pmin, $dmin) = $self->{ExteriorRing}->ClosestPoint($x, $y);
+    my $iring = -1;
+    my $r = 0;
+    for my $ring (@{$self->{InteriorRings}}) {
+	my($i, $p, $d) = $ring->ClosestPoint($x, $y);
+	($iring, $imin, $pmin, $dmin) = ($r, $i, $p, $d) if $d < $dmin;
+	$r++;
+    }
+    return ($iring, $imin, $pmin, $dmin);
+}
+
+sub AddVertex {
+    my($self, $ring, $i, $p) = @_;
+    $self->{ExteriorRing}->AddVertex($i, $p), return if $ring < 0;
+    $self->{InteriorRings}[$ring]->AddVertex($i, $p);
+}
+
+sub DeleteVertex {
+    my($self, $ring, $i) = @_;
+    $self->{ExteriorRing}->DeleteVertex($i), return if $ring < 0;
+    $self->{InteriorRings}[$ring]->DeleteVertex($i);
+}
+
+## @method LastPolygon()
+# @brief Returns self
+sub LastPolygon {
+    my($self) = @_;
+    return $self;
+}
+
 #
 #    Triangle
 #
@@ -1400,7 +2105,6 @@ sub MakeCollection {
 package Geo::OGC::Triangle;
 
 use strict;
-use UNIVERSAL qw(isa);
 use Carp;
 
 our @ISA = qw( Geo::OGC::Polygon );
@@ -1422,7 +2126,6 @@ sub GeometryType {
 package Geo::OGC::PolyhedralSurface;
 
 use strict;
-use UNIVERSAL qw(isa);
 use Carp;
 
 our @ISA = qw( Geo::OGC::Surface );
@@ -1436,14 +2139,14 @@ sub new {
 sub init {
     my($self, %params) = @_;
     $self->SUPER::init(%params);
-    $self->{Patches} = []; # linearrings
+    $self->{Patches} = []; # polygon
     if ($params{patches}) {
-	for (@{$params{patches}}) {
-	    $self->AddPatch(Geo::OGC::LinearRing->new(points=>$_));
+	for my $p (@{$params{patches}}) {
+	    $self->AddPatch(Geo::OGC::Polygon->new(points=>$p));
 	}
     } elsif ($params{patchesm}) {
-	for (@{$params{patches}}) {
-	    $self->AddPatch(Geo::OGC::LinearRing->new(pointsm=>$_));
+	for my $p (@{$params{patches}}) {
+	    $self->AddPatch(Geo::OGC::Polygon->new(pointsm=>$p));
 	}
     }
 }
@@ -1451,8 +2154,8 @@ sub init {
 sub copy {
     my($self, $clone) = @_;
     $self->SUPER::copy($clone);
-    for (@{$self->{Patches}}){
-	$clone->AddPatch($_->Clone);
+    for my $p (@{$self->{Patches}}){
+	$clone->AddPatch($p->Clone);
     }
 }
 
@@ -1463,7 +2166,7 @@ sub GeometryType {
 sub AddPatch {
     my($self, $patch, $i) = @_;
     croak 'usage: PolyhedralSurface->AddPatch($patch[, $i])' 
-	unless $patch and isa($patch, 'Geo::OGC::LinearRing');
+	unless $patch and $patch->isa('Geo::OGC::Polygon');
     my $patches = $self->{Patches};
     $i = @$patches unless defined $i;
     if (@$patches) {
@@ -1498,8 +2201,8 @@ sub IsClosed {
 
 sub IsMeasured {
     my($self) = @_;
-    for (@{$self->{Patches}}) {
-	return 1 if $_->IsMeasured;
+    for my $p (@{$self->{Patches}}) {
+	return 1 if $p->IsMeasured;
     }
     return 0;
 }
@@ -1524,7 +2227,6 @@ sub as_text {
 package Geo::OGC::TIN;
 
 use strict;
-use UNIVERSAL qw(isa);
 use Carp;
 
 our @ISA = qw( Geo::OGC::PolyhedralSurface );
@@ -1546,7 +2248,6 @@ sub GeometryType {
 package Geo::OGC::GeometryCollection;
 
 use strict;
-use UNIVERSAL qw(isa);
 use Carp;
 
 our @ISA = qw( Geo::OGC::Geometry );
@@ -1566,8 +2267,8 @@ sub init {
 sub copy {
     my($self, $clone) = @_;
     $self->SUPER::copy($clone);
-    for (@{$self->{Geometries}}) {
-	$clone->AddGeometry($_->Clone);
+    for my $g (@{$self->{Geometries}}) {
+	$clone->AddGeometry($g->Clone);
     }
 }
 
@@ -1575,18 +2276,28 @@ sub GeometryType {
     return 'GeometryCollection';
 }
 
+sub Dimension {
+    my($self) = @_;
+    my $dim;
+    for my $g (@{$self->{Geometries}}) {
+	my $d = $g->Dimension;
+	$dim = $d if !(defined $dim) or $d > $dim;
+    }
+    return $dim;
+}
+
 sub Is3D {
     my($self) = @_;
-    for (@{$self->{Geometries}}) {
-	return 1 if $_->Is3D;
+    for my $g (@{$self->{Geometries}}) {
+	return 1 if $g->Is3D;
     }
     return 0;
 }
 
 sub IsMeasured {
     my($self) = @_;
-    for (@{$self->{Geometries}}) {
-	return 1 if $_->IsMeasured;
+    for my $g (@{$self->{Geometries}}) {
+	return 1 if $g->IsMeasured;
     }
     return 0;
 }
@@ -1607,7 +2318,7 @@ sub ElementType {
 sub AddGeometry {
     my($self, $geometry, $i) = @_;
     croak 'usage: GeometryCollection->AddGeometry($geometry[, $i])' 
-	unless $geometry and isa($geometry, 'Geo::OGC::Geometry');
+	unless $geometry and $geometry->isa('Geo::OGC::Geometry');
     my $geometries = $self->{Geometries};
     $i = @$geometries unless defined $i;
     if (@$geometries) {
@@ -1662,12 +2373,96 @@ sub Envelope {
 # @note Assumes the order is the same.
 sub Equals {
     my($self, $geom) = @_;
-    return 0 unless isa($geom, 'Geo::OGC::GeometryCollection');
+    return 0 unless $geom->isa('Geo::OGC::GeometryCollection');
     return 0 unless @{$self->{Geometries}} == @{$geom->{Geometries}};
     for my $i (0..$#{$self->{Geometries}}) {
 	return 0 unless $self->{Geometries}[$i]->Equals($geom->{Geometries}[$i]);
     }
     return 1;
+}
+
+sub Distance {
+    my($self, $geom) = @_;
+    if ($geom->isa('Geo::OGC::Point')) {
+	return $geom->Distance($self);
+    } elsif ($geom->isa('Geo::OGC::LineString')) {
+	return $geom->Distance($self);
+    } elsif ($geom->isa('Geo::OGC::Polygon')) {
+	return $geom->Distance($self);
+    } elsif ($geom->isa('Geo::OGC::GeometryCollection')) {
+	my $dist = $self->Distance($geom->{Geometries}[0]);
+	for my $g (@{$geom->{Geometries}}[1..$#{$geom->{Geometries}}]) {
+	    my $d = $g->Distance($self);
+	    $dist = $d if $d < $dist;
+	}
+	return $dist;
+    } else {
+	croak "can't compute distance between a ".ref($geom)." and a geometry collection";
+    }
+}
+
+sub ClosestVertex {
+    my($self, $x, $y) = @_;
+    return unless @{$self->{Geometries}};
+    my @rmin = $self->{Geometries}[0]->ClosestVertex($x, $y);
+    my $imin = 0;
+    my $i = 0;
+    for my $g (@{$self->{Geometries}}) {
+	$i++, next if $i == 0;
+	my @r = $g->ClosestVertex($x, $y);
+	if ($r[$#r] < $rmin[$#rmin]) {
+	    @rmin = @r;
+	    $imin = $i;
+	}
+	$i++;
+    }
+    return ($imin, @rmin);
+}
+
+sub VertexAt {
+    my $self = shift;
+    my $i = shift;
+    return $self->{Geometries}[$i]->VertexAt(@_);
+}
+
+sub ClosestPoint {
+    my($self, $x, $y) = @_;
+    return unless @{$self->{Geometries}};
+    my @rmin = $self->{Geometries}[0]->ClosestPoint($x, $y);
+    my $imin = 0;
+    my $i = 0;
+    for my $g (@{$self->{Geometries}}) {
+	$i++, next if $i == 0;
+	my @r = $g->ClosestPoint($x, $y);
+	if ($r[$#r] < $rmin[$#rmin]) {
+	    @rmin = @r;
+	    $imin = $i;
+	}
+	$i++;
+    }
+    return ($imin, @rmin);
+}
+
+sub AddVertex {
+    my $self = shift;
+    my $i = shift;
+    $self->{Geometries}[$i]->AddVertex(@_);
+}
+
+sub DeleteVertex {
+    my $self = shift;
+    my $i = shift;
+    $self->{Geometries}[$i]->DeleteVertex(@_);
+}
+
+## @method LastPolygon()
+# @brief Returns last polygon or undef
+sub LastPolygon {
+    my($self) = @_;
+    for (my $i = $#{$self->{Geometries}}; $i >= 0; $i--) {
+	my $polygon = $self->{Geometries}[$i]->LastPolygon;
+	return $polygon if $polygon;
+    }
 }
 
 #
@@ -1756,12 +2551,12 @@ sub init {
     my($self, %params) = @_;
     $self->SUPER::init(%params);
     if ($params{points}) {
-	for (@{$params{points}}) {
-	    $self->AddGeometry(Geo::OGC::Point->new(point=>$_));
+	for my $p (@{$params{points}}) {
+	    $self->AddGeometry(Geo::OGC::Point->new(point=>$p));
 	}
     } elsif ($params{pointsm}) {
-	for (@{$params{pointsm}}) {
-	    $self->AddGeometry(Geo::OGC::Point->new(pointm=>$_));
+	for my $p (@{$params{pointsm}}) {
+	    $self->AddGeometry(Geo::OGC::Point->new(pointm=>$p));
 	}
     }
 }

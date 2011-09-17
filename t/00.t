@@ -1,4 +1,3 @@
-use UNIVERSAL qw(isa);
 use Test::More qw(no_plan);
 
 BEGIN { 
@@ -26,10 +25,10 @@ ok(!$p->IsPointIn(Geo::OGC::Point->new(1.5, 1.5)), "point in polygon g");
 ok(!$p->IsPointIn(Geo::OGC::Point->new(0.5, 1.5)), "point in polygon h");
 ok(!$p->IsPointIn(Geo::OGC::Point->new(-0.5, 1.5)), "point in polygon i");
 
-ok(Geo::OGC::Point->new(0.5, 0)->DistanceToLineString($r) < 0.0001,"distance of point a");
-ok(Geo::OGC::Point->new(1, 0.5)->DistanceToLineString($r) < 0.0001,"distance of point b");
-ok(Geo::OGC::Point->new(0.5, 1)->DistanceToLineString($r) < 0.0001,"distance of point c");
-ok(Geo::OGC::Point->new(0, 0.5)->DistanceToLineString($r) < 0.0001,"distance of point d");
+ok(Geo::OGC::Point->new(0.5, 0)->DistanceToLineStringSqr($r) < 0.0001,"distance of point a");
+ok(Geo::OGC::Point->new(1, 0.5)->DistanceToLineStringSqr($r) < 0.0001,"distance of point b");
+ok(Geo::OGC::Point->new(0.5, 1)->DistanceToLineStringSqr($r) < 0.0001,"distance of point c");
+ok(Geo::OGC::Point->new(0, 0.5)->DistanceToLineStringSqr($r) < 0.0001,"distance of point d");
 
 ok($r->Area == 1, "area");
 ok(is_deeply($r->Centroid, Geo::OGC::Point->new(0.5, 0.5)), "centroid");

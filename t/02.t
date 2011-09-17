@@ -1,6 +1,5 @@
 # wkt tests
 
-use UNIVERSAL qw(isa);
 use Test::More qw(no_plan);
 use Data::Dumper;
 
@@ -24,7 +23,7 @@ PolyhedralSurface Z
 ((0 0 0, 1 0 0, 1 0 1, 0 0 1, 0 0 0)),
 ((1 1 0, 1 1 1, 1 0 1, 1 0 0, 1 1 0)),
 ((0 1 0, 0 1 1, 1 1 1, 1 1 0, 0 1 0)),
-((0 0 1, 1 0 1, 1 1 1, 0 1 1. 0 0 1))
+((0 0 1, 1 0 1, 1 1 1, 0 1 1, 0 0 1))
 )
 X
     ;
@@ -44,3 +43,13 @@ $g2 = Geo::OGC::PolyhedralSurface->new
     );
 
 ok(is_deeply($p, $q), "wkt polyhedral surface z");
+
+$text = <<X
+MultiPolygon
+(
+((10 10, 10 20, 20 20, 20 15, 10 10)),
+((60 60, 70 70, 80 60, 60 60 ))
+)
+X
+;
+$g = Geo::OGC::Geometry->new(Text => $text);

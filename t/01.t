@@ -1,12 +1,11 @@
-# Methods of Curve
+# Methods of Curve and LineString
 
-use UNIVERSAL qw(isa);
 use Test::More qw(no_plan);
 
 BEGIN { 
     use_ok( 'Geo::OGC::Geometry' );
 }
-
+#goto here;
 $c = new Geo::OGC::Curve;
 $c->AddPoint(Geo::OGC::Point->new(0, 0));
 $c->AddPoint(Geo::OGC::Point->new(1, 0));
@@ -67,4 +66,104 @@ ok($a[0] == 0.5, "Area 3");
 $c->Reverse;
 @a = $c->Area;
 ok($a[0] == -0.5, "Area 3 b");
+
+$c = new Geo::OGC::LineString;
+$c->AddPoint(Geo::OGC::Point->new(0, 0));
+$c->AddPoint(Geo::OGC::Point->new(1, 0));
+$c->AddPoint(Geo::OGC::Point->new(1, 2));
+$c->AddPoint(Geo::OGC::Point->new(1, 1));
+$c->AddPoint(Geo::OGC::Point->new(2, 1));
+
+ok(!$c->IsSimple, "IsSimple 4");
+
+if (0) {
+    print STDERR "\n";
+    
+    print STDERR Geo::OGC::Geometry::intersect(0,0, 1,0, -1,0, 0,0), "\n";
+    print STDERR Geo::OGC::Geometry::intersect(0,0, 1,0,  0,1, 0,0), "\n";
+    print STDERR Geo::OGC::Geometry::intersect(0,0, 1,0,  0,1, 0.5,0), "\n";
+    print STDERR Geo::OGC::Geometry::intersect(0,0, 1,0,  0,1, 1,0), "\n";
+    
+    print STDERR Geo::OGC::Geometry::intersect(0,0, 1,0,  1,-1, 1,0), "\n";
+    print STDERR Geo::OGC::Geometry::intersect(0,0, 1,0,  1,-1, 0.5,0), "\n";
+    
+    print STDERR Geo::OGC::Geometry::intersect(0,0, 1,0,  1,-1, 1,-0.5), "\n";
+    
+    print STDERR Geo::OGC::Geometry::intersect(0,0, 1,0,  -1,0, 0.5,0), "\n";
+    print STDERR Geo::OGC::Geometry::intersect(0,0, 1,0,  -1,0, 1,0), "\n";
+
+    print STDERR Geo::OGC::Geometry::intersect(0,0, 1,0,  0,0, 0,0), " point on line end\n";
+    print STDERR Geo::OGC::Geometry::intersect(0,0, 1,0,  1,0, 1,0), " point on line end\n";
+    print STDERR Geo::OGC::Geometry::intersect(0,0, 1,0,  0.5,0, 0.5,0), " point on line\n";
+    print STDERR Geo::OGC::Geometry::intersect(0,0, 1,0,  0.5,1, 0.5,1), " point outside line\n";
+}
+
+
+
+my $p = new Geo::OGC::Polygon;
+my $r = new Geo::OGC::LinearRing;
+$r->AddPoint(Geo::OGC::Point->new(0, 0));
+$r->AddPoint(Geo::OGC::Point->new(1, 1));
+$r->AddPoint(Geo::OGC::Point->new(2, 3));
+$r->AddPoint(Geo::OGC::Point->new(0, 2));
+$r->AddPoint(Geo::OGC::Point->new(-1, 3));
+$r->AddPoint(Geo::OGC::Point->new(-1, 4));
+$r->AddPoint(Geo::OGC::Point->new(-0.5, 5));
+$r->AddPoint(Geo::OGC::Point->new(-1.5, 6));
+$r->AddPoint(Geo::OGC::Point->new(-3, 4));
+$r->AddPoint(Geo::OGC::Point->new(-2, 2));
+$r->Close;
+$p->ExteriorRing($r);
+#$p->AddInteriorRing(1);
+eval {
+    $p->Assert;
+};
+ok(!$@, "Polygon Assert a: $@");
+
+$r = new Geo::OGC::LinearRing;
+$r->AddPoint(Geo::OGC::Point->new(0, 0.5));
+$r->AddPoint(Geo::OGC::Point->new(0.5, 1));
+$r->AddPoint(Geo::OGC::Point->new(0, 2));
+$r->AddPoint(Geo::OGC::Point->new(-0.5, 1));
+$r->Close;
+$p->AddInteriorRing($r);
+eval {
+    $p->Assert;
+};
+ok(!$@, "Polygon Assert b: $@");
+
+$r = new Geo::OGC::LinearRing;
+$r->AddPoint(Geo::OGC::Point->new(-3, 4));
+$r->AddPoint(Geo::OGC::Point->new(-2.5, 4.5));
+$r->AddPoint(Geo::OGC::Point->new(-2.5, 3.5));
+$r->Close;
+$p->AddInteriorRing($r);
+eval {
+    $p->Assert;
+};
+ok(!$@, "Polygon Assert c: $@");
+
+
+here:
+$c = new Geo::OGC::LineString;
+$c->AddPoint(Geo::OGC::Point->new(0, 0));
+$c->AddPoint(Geo::OGC::Point->new(1, 0));
+$c->AddPoint(Geo::OGC::Point->new(1, 1));
+
+$d = new Geo::OGC::LineString;
+$d->AddPoint(Geo::OGC::Point->new(2, 0));
+$d->AddPoint(Geo::OGC::Point->new(1, 0));
+$d->AddPoint(Geo::OGC::Point->new(1, 1));
+$d->AddPoint(Geo::OGC::Point->new(0, 0));
+$d->AddPoint(Geo::OGC::Point->new(0.5, 0));
+
+$i = $c->Intersection($d);
+
+#print STDERR $i->AsText,"\n";
+ok(@{$i->{Geometries}} == 2, "Intersection 1");
+
+$g = Geo::OGC::Geometry->new(Text => 'Point(0,5 1.5)');
+$g->{X} *= 3;
+$g->{Y} *= 3;
+ok($g->{X} == 1.5, "comma in WKT");
 
